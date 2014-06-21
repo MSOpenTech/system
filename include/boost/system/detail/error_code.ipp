@@ -368,7 +368,9 @@ namespace
 
   std::string system_error_category::message( int ev ) const
   {
-#if defined(UNDER_CE) || BOOST_PLAT_WINDOWS_RUNTIME || defined(BOOST_NO_ANSI_APIS)
+# if defined(UNDER_CE) || defined(BOOST_NO_ANSI_APIS)  
+    // Windows Runtime doesn't support FORMAT_MESSAGE_ALLOCATE_BUFFER
+# if BOOST_PLAT_WINDOWS_RUNTIME
     std::wstring buf(128, wchar_t());
     for (;;)
     {
@@ -406,7 +408,31 @@ namespace
     }
 
     std::string str( narrow_buffer );
-#else
+# else
+    LPVOID lpMsgBuf = 0;
+    DWORD retval = ::FormatMessageW( 
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+        FORMAT_MESSAGE_FROM_SYSTEM | 
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        ev,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
+        (LPWSTR) &lpMsgBuf,
+        0,
+        NULL 
+    );
+    detail::local_free_on_destruction lfod(lpMsgBuf);
+    if (retval == 0)
+        return std::string("Unknown error");
+    
+    int num_chars = (wcslen( static_cast<LPCWSTR>(lpMsgBuf) ) + 1) * 2;
+    LPSTR narrow_buffer = (LPSTR)_alloca( num_chars );
+    if (::WideCharToMultiByte(CP_ACP, 0, static_cast<LPCWSTR>(lpMsgBuf), -1, narrow_buffer, num_chars, NULL, NULL) == 0)
+        return std::string("Unknown error");
+
+    std::string str( narrow_buffer );
+# endif
+# else
     LPVOID lpMsgBuf = 0;
     DWORD retval = ::FormatMessageA(
         FORMAT_MESSAGE_ALLOCATE_BUFFER |
